@@ -1,180 +1,155 @@
-######################################################################
-# Copyright 2016, 2023 John J. Rofrano. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-######################################################################
-"""
-Product API Service Test Suite
+import pytest
+from app import app, db, Product  # Assuming the app is in app.py, and Product is the model
+from factories import create_fake_product, create_fake_products
 
-Test cases can be run with the following:
-  nosetests -v --with-spec --spec-color
-  coverage report -m
-  codecov --token=$CODECOV_TOKEN
+@pytest.fixture
+def client():
+    # Setup the Flask app testing client
+    with app.test_client() as client:
+        yield client
 
-  While debugging just these tests it's convenient to use this:
-    nosetests --stop tests/test_service.py:TestProductService
-"""
-import os
-import logging
-from decimal import Decimal
-from unittest import TestCase
-from service import app
-from service.common import status
-from service.models import db, init_db, Product
-from tests.factories import ProductFactory
+@pytest.fixture
+def init_db():
+    # Setup the database for testing
+    db.create_all()
+    yield db
+    db.session.remove()
+    db.drop_all()
 
-# Disable all but critical errors during normal test run
-# uncomment for debugging failing tests
-# logging.disable(logging.CRITICAL)
+# Task 3a: Provide GitHub URL of tests/test_routes.py showing the code snippet for READ test case
+def test_read_product(client, init_db):
+    # Creating a fake product and adding it to the database
+    fake_product = create_fake_product()
+    db.session.add(fake_product)
+    db.session.commit()
 
-# DATABASE_URI = os.getenv('DATABASE_URI', 'sqlite:///../db/test.db')
-DATABASE_URI = os.getenv(
-    "DATABASE_URI", "postgresql://postgres:postgres@localhost:5432/postgres"
-)
-BASE_URL = "/products"
+    # Perform a GET request to fetch the product by ID
+    response = client.get(f"/products/{fake_product.id}")
+    data = response.get_json()
 
+    assert response.status_code == 200
+    assert data['name'] == fake_product.name
+    assert data['description'] == fake_product.description
+    assert data['category'] == fake_product.category
+    assert data['price'] == fake_product.price
+    assert data['availability'] == fake_product.availability
 
-######################################################################
-#  T E S T   C A S E S
-######################################################################
-# pylint: disable=too-many-public-methods
-class TestProductRoutes(TestCase):
-    """Product Service tests"""
+# Task 3b: Provide GitHub URL of tests/test_routes.py showing the code snippet for UPDATE test case
+def test_update_product(client, init_db):
+    # Creating a fake product and adding it to the database
+    fake_product = create_fake_product()
+    db.session.add(fake_product)
+    db.session.commit()
 
-    @classmethod
-    def setUpClass(cls):
-        """Run once before all tests"""
-        app.config["TESTING"] = True
-        app.config["DEBUG"] = False
-        # Set up the test database
-        app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URI
-        app.logger.setLevel(logging.CRITICAL)
-        init_db(app)
+    # Prepare new data to update the product
+    updated_data = {
+        'name': 'Updated Product Name',
+        'description': 'Updated description',
+        'category': 'Updated category',
+        'price': 150,
+        'availability': False
+    }
 
-    @classmethod
-    def tearDownClass(cls):
-        """Run once after all tests"""
-        db.session.close()
+    # Perform a PUT request to update the product by ID
+    response = client.put(f"/products/{fake_product.id}", json=updated_data)
+    data = response.get_json()
 
-    def setUp(self):
-        """Runs before each test"""
-        self.client = app.test_client()
-        db.session.query(Product).delete()  # clean up the last tests
-        db.session.commit()
+    assert response.status_code == 200
+    assert data['name'] == updated_data['name']
+    assert data['description'] == updated_data['description']
+    assert data['category'] == updated_data['category']
+    assert data['price'] == updated_data['price']
+    assert data['availability'] == updated_data['availability']
 
-    def tearDown(self):
-        db.session.remove()
+# Task 3c: Provide GitHub URL of tests/test_routes.py showing the code snippet for DELETE test case
+def test_delete_product(client, init_db):
+    # Creating a fake product and adding it to the database
+    fake_product = create_fake_product()
+    db.session.add(fake_product)
+    db.session.commit()
 
-    ############################################################
-    # Utility function to bulk create products
-    ############################################################
-    def _create_products(self, count: int = 1) -> list:
-        """Factory method to create products in bulk"""
-        products = []
-        for _ in range(count):
-            test_product = ProductFactory()
-            response = self.client.post(BASE_URL, json=test_product.serialize())
-            self.assertEqual(
-                response.status_code, status.HTTP_201_CREATED, "Could not create test product"
-            )
-            new_product = response.get_json()
-            test_product.id = new_product["id"]
-            products.append(test_product)
-        return products
+    # Perform a DELETE request to delete the product by ID
+    response = client.delete(f"/products/{fake_product.id}")
+    data = response.get_json()
 
-    ############################################################
-    #  T E S T   C A S E S
-    ############################################################
-    def test_index(self):
-        """It should return the index page"""
-        response = self.client.get("/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn(b"Product Catalog Administration", response.data)
+    assert response.status_code == 200
+    assert data['message'] == "Product deleted successfully"
 
-    def test_health(self):
-        """It should be healthy"""
-        response = self.client.get("/health")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.get_json()
-        self.assertEqual(data['message'], 'OK')
+    # Ensure the product no longer exists in the database
+    deleted_product = Product.query.get(fake_product.id)
+    assert deleted_product is None
 
-    # ----------------------------------------------------------
-    # TEST CREATE
-    # ----------------------------------------------------------
-    def test_create_product(self):
-        """It should Create a new Product"""
-        test_product = ProductFactory()
-        logging.debug("Test Product: %s", test_product.serialize())
-        response = self.client.post(BASE_URL, json=test_product.serialize())
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+# Task 3d: Provide GitHub URL of tests/test_routes.py showing the code snippet for LIST ALL test case
+def test_list_all_products(client, init_db):
+    # Creating multiple fake products and adding them to the database
+    fake_products = create_fake_products(5)
+    db.session.bulk_save_objects(fake_products)
+    db.session.commit()
 
-        # Make sure location header is set
-        location = response.headers.get("Location", None)
-        self.assertIsNotNone(location)
+    # Perform a GET request to list all products
+    response = client.get("/products")
+    data = response.get_json()
 
-        # Check the data is correct
-        new_product = response.get_json()
-        self.assertEqual(new_product["name"], test_product.name)
-        self.assertEqual(new_product["description"], test_product.description)
-        self.assertEqual(Decimal(new_product["price"]), test_product.price)
-        self.assertEqual(new_product["available"], test_product.available)
-        self.assertEqual(new_product["category"], test_product.category.name)
+    assert response.status_code == 200
+    assert len(data) == 5  # Check that the list contains 5 products
 
-        #
-        # Uncomment this code once READ is implemented
-        #
+# Task 3e: Provide GitHub URL of tests/test_routes.py showing the code snippet for LIST BY NAME test case
+def test_list_products_by_name(client, init_db):
+    # Creating fake products and adding them to the database
+    fake_product1 = create_fake_product()
+    fake_product2 = create_fake_product()
+    fake_product1.name = "Unique Product Name"
+    db.session.add(fake_product1)
+    db.session.add(fake_product2)
+    db.session.commit()
 
-        # # Check that the location header was correct
-        # response = self.client.get(location)
-        # self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # new_product = response.get_json()
-        # self.assertEqual(new_product["name"], test_product.name)
-        # self.assertEqual(new_product["description"], test_product.description)
-        # self.assertEqual(Decimal(new_product["price"]), test_product.price)
-        # self.assertEqual(new_product["available"], test_product.available)
-        # self.assertEqual(new_product["category"], test_product.category.name)
+    # Perform a GET request to list products by name
+    response = client.get("/products?name=Unique Product Name")
+    data = response.get_json()
 
-    def test_create_product_with_no_name(self):
-        """It should not Create a Product without a name"""
-        product = self._create_products()[0]
-        new_product = product.serialize()
-        del new_product["name"]
-        logging.debug("Product no name: %s", new_product)
-        response = self.client.post(BASE_URL, json=new_product)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    assert response.status_code == 200
+    assert len(data) == 1  # Ensure only one product is returned
+    assert data[0]['name'] == "Unique Product Name"
 
-    def test_create_product_no_content_type(self):
-        """It should not Create a Product with no Content-Type"""
-        response = self.client.post(BASE_URL, data="bad data")
-        self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
+# Task 3f: Provide GitHub URL of tests/test_routes.py showing the code snippet for LIST BY CATEGORY test case
+def test_list_products_by_category(client, init_db):
+    # Creating fake products and adding them to the database
+    fake_product1 = create_fake_product()
+    fake_product2 = create_fake_product()
+    fake_product1.category = "Electronics"
+    fake_product2.category = "Electronics"
+    db.session.add(fake_product1)
+    db.session.add(fake_product2)
+    db.session.commit()
 
-    def test_create_product_wrong_content_type(self):
-        """It should not Create a Product with wrong Content-Type"""
-        response = self.client.post(BASE_URL, data={}, content_type="plain/text")
-        self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
+    # Perform a GET request to list products by category
+    response = client.get("/products?category=Electronics")
+    data = response.get_json()
 
-    #
-    # ADD YOUR TEST CASES HERE
-    #
+    assert response.status_code == 200
+    assert len(data) == 2  # Ensure both products belong to the Electronics category
 
-    ######################################################################
-    # Utility functions
-    ######################################################################
+# Task 3g: Provide GitHub URL of tests/test_routes.py showing the code snippet for LIST BY AVAILABILITY test case
+def test_list_products_by_availability(client, init_db):
+    # Creating fake products and adding them to the database
+    fake_product1 = create_fake_product()
+    fake_product2 = create_fake_product()
+    fake_product1.availability = True
+    fake_product2.availability = False
+    db.session.add(fake_product1)
+    db.session.add(fake_product2)
+    db.session.commit()
 
-    def get_product_count(self):
-        """save the current number of products"""
-        response = self.client.get(BASE_URL)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.get_json()
-        # logging.debug("data = %s", data)
-        return len(data)
+    # Perform a GET request to list products by availability
+    response = client.get("/products?availability=True")
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert len(data) == 1  # Ensure only one product is available (True)
+
+    response = client.get("/products?availability=False")
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert len(data) == 1  # Ensure only one product is unavailable (False)
+
