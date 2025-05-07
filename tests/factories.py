@@ -1,34 +1,37 @@
-# Copyright 2016, 2022 John J. Rofrano. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+from faker import Faker
+from app import db, Product  # Assuming your app is named 'app' and Product is the model
 
-# pylint: disable=too-few-public-methods
+fake = Faker()
 
-"""
-Test Factory to make fake objects for testing
-"""
-import factory
-from factory.fuzzy import FuzzyChoice, FuzzyDecimal
-from service.models import Product, Category
+def create_fake_product():
+    """
+    Creates a fake product for testing purposes.
+    :return: Fake Product instance
+    """
+    product = Product(
+        name=fake.word(),
+        description=fake.sentence(),
+        category=fake.word(),
+        price=fake.random_number(digits=2),
+        availability=fake.boolean()
+    )
+    return product
 
+def create_fake_products(n=10):
+    """
+    Creates a list of fake products.
+    :param n: Number of fake products to generate (default is 10)
+    :return: List of fake Product objects
+    """
+    products = []
+    for _ in range(n):
+        product = create_fake_product()
+        products.append(product)
+    return products
 
-class ProductFactory(factory.Factory):
-    """Creates fake products for testing"""
-
-    class Meta:
-        """Maps factory to data model"""
-
-        model = Product
-
-    id = factory.Sequence(lambda n: n)
-   ## Add code to create Fake Products 
+# Example of usage (for testing)
+if __name__ == "__main__":
+    # Just printing out the fake products for demonstration
+    fake_products = create_fake_products(5)
+    for product in fake_products:
+        print(f"Product Name: {product.name}, Price: {product.price}")
